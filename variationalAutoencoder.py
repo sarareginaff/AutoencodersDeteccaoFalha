@@ -77,7 +77,8 @@ def trainVariationalAutoencoder(dataset, timesteps, input_dim, bottleneckDim, lo
 
 def sampling(args):
     z_mean, z_log_var = args
-    epsilon = K.random_normal(shape=(batch_size, latent_dim), mean=0.,
+    x_train_latent_shape = (original_dim[0], latent_dim)
+    epsilon = K.random_normal(shape=((batchSizeModel,) + x_train_latent_shape), mean=0., #40, 480, 3, 2
                               stddev=epsilon_std)
     return z_mean + K.exp(z_log_var / 2) * epsilon
 
@@ -88,7 +89,7 @@ class CustomVariationalLayer(Layer):
         super(CustomVariationalLayer, self).__init__(**kwargs)
 
     def vae_loss(self, x, x_decoded_mean):
-        xent_loss = original_dim * metrics.binary_crossentropy(x, x_decoded_mean)
+        xent_loss = original_dim[1] * metrics.binary_crossentropy(x, x_decoded_mean)
         kl_loss = - 0.5 * K.sum(1 + z_log_var - K.square(z_mean) - K.exp(z_log_var), axis=-1)
         return K.mean(xent_loss + kl_loss)
 
@@ -103,58 +104,63 @@ class CustomVariationalLayer(Layer):
 #************* MAIN *****************#
 # variables
 look_back = 3
-bottleneckDim = 5
-epochs = 5
-batchSizeModel = 1
+bottleneckDim = 10
 lossEvaluation = 'mean_squared_error'
 optimizer = 'adam'
 fault = False
 batchSizeData = 5
-
-batch_size = 100
-original_dim = 784
-latent_dim = 2
-intermediate_dim = 256
-epochs = 50
 epsilon_std = 1.0
+batchSizeModel = 3
+latent_dim = 2
+epochs = 15
+
+# load dataset with all fault simulation
+originalDataset = loadData('DadosTodasFalhas.mat', 'Xsep')
+
+# prepare dataset
+filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[0][:,:], 4.0)
+#filteredDataset = originalDataset[i][:,0]
+normalizedDataset = normalizeData(filteredDataset)
+dataset = createMatrix(normalizedDataset, look_back)
+
+# split into train and test sets
+train_size = int(len(dataset) * 0.67)
+test_size = len(dataset) - train_size
+x_train, x_test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
+
+# get sample size
+original_dim = (x_train.shape[1], x_train.shape[2])
 
 # encoder
-x = Input(batch_shape=(batch_size, original_dim))
-h = Dense(intermediate_dim, activation='relu')(x)
-z_mean = Dense(latent_dim)(h)
-z_log_var = Dense(latent_dim)(h)
+x = Input(batch_shape=(batchSizeModel,) + original_dim) #batchSizeModel, original_dim (22)
+h = Dense(bottleneckDim, activation='relu')(x) #batchSizeModel,bottleneckDim
+z_mean = Dense(latent_dim)(h) #batchSizeModel,latent_dim
+z_log_var = Dense(latent_dim)(h) #batchSizeModel,latent_dim
 
-# note that "output_shape" isn't necessary with the TensorFlow backend
-z = Lambda(sampling, output_shape=(latent_dim,))([z_mean, z_log_var])
+z = Lambda(sampling)([z_mean, z_log_var])
 
 # decoder
 # we instantiate these layers separately so as to reuse them later
-decoder_h = Dense(intermediate_dim, activation='relu')
-decoder_mean = Dense(original_dim, activation='sigmoid')
-h_decoded = decoder_h(z)
-x_decoded_mean = decoder_mean(h_decoded)
+decoder_h = Dense(bottleneckDim, activation='relu') 
+decoder_mean = Dense(original_dim[1], activation='sigmoid') 
+h_decoded = decoder_h(z) #batchSizeModel,bottleneckDim
+x_decoded_mean = decoder_mean(h_decoded) #batchSizeModel,original_dim
+print(x_decoded_mean.shape)
 
 
-y = CustomVariationalLayer()([x, x_decoded_mean])
-vae = Model(x, y)
-vae.compile(optimizer='rmsprop', loss=None)
+y = CustomVariationalLayer()([x, x_decoded_mean]) #batchSizeModel,original_dim 
+Model = Model(x, y)
+Model.compile(optimizer='rmsprop', loss=None)
 
-# train the VAE on MNIST digits
-(x_train, y_train), (x_test, y_test) = mnist.load_data()
+Model.fit(x_train, shuffle=True, epochs=epochs, batch_size=batchSizeModel, validation_data=(x_test, x_test))
 
-x_train = x_train.astype('float32') / 255.
-x_test = x_test.astype('float32') / 255.
-x_train = x_train.reshape((len(x_train), numpy.prod(x_train.shape[1:])))
-x_test = x_test.reshape((len(x_test), numpy.prod(x_test.shape[1:])))
-
-vae.fit(x_train, shuffle=True, epochs=epochs, batch_size=batch_size, validation_data=(x_test, x_test))
-
-
+'''
+# using the model
 # build a model to project inputs on the latent space
 encoder = Model(x, z_mean)
 
 # display a 2D plot of the digit classes in the latent space
-x_test_encoded = encoder.predict(x_test, batch_size=batch_size)
+x_test_encoded = encoder.predict(x_test, batch_size=batchSizeModel)
 plt.figure(figsize=(6, 6))
 plt.scatter(x_test_encoded[:, 0], x_test_encoded[:, 1], c=y_test)
 plt.colorbar()
@@ -186,9 +192,8 @@ for i, yi in enumerate(grid_x):
 plt.figure(figsize=(10, 10))
 plt.imshow(figure, cmap='Greys_r')
 plt.show()
-
 '''
-
+'''
 # load dataset with all fault simulation
 originalDataset = loadData('DadosTodasFalhas.mat', 'Xsep')
 
@@ -209,10 +214,14 @@ j = 0
 
 # train model
 Model = trainVariationalAutoencoder(dataset, timesteps, input_dim, bottleneckDim, lossEvaluation, optimizer, epochs, batchSizeModel, verbose=2)
+'''
 
 # get error for each batch of normal data
-for k in range(0,len(dataset),batchSizeData):
-	dataBatch = dataset[k:k+batchSizeData]	
+normalPredict = []
+normalError = []
+j = 0
+for k in range(0,len(dataset),batchSizeModel):
+	dataBatch = dataset[k:k+batchSizeModel]	
 	normalPredict.append(Model.predict(dataBatch))
 	normalError.append(mean_squared_error(dataBatch[:,0,:], normalPredict[j][:,0,:]))
 	j += 1
@@ -234,8 +243,8 @@ for i in range(1,len(originalDataset)):
 	#dataset = numpy.reshape(dataset, (dataset.shape[0], dataset.shape[1], 22)) # reshape input to be [samples, time steps, features]
 	
 	# get error for each batch of data
-	for k in range(0,len(dataset),batchSizeData):
-		dataBatch = dataset[k:k+batchSizeData]	
+	for k in range(0,len(dataset),batchSizeModel):
+		dataBatch = dataset[k:k+batchSizeModel]	
 
 		# generate predictions using model
 		trainPredict.append(Model.predict(dataBatch))
@@ -256,4 +265,3 @@ for i in range(1,len(originalDataset)):
 	#plt.plot(normalizedDataset)
 	#plt.plot(numpy.concatenate( predicted, axis=0 ))
 	#plt.show()
-'''
