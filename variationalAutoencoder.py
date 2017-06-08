@@ -12,10 +12,9 @@ import scipy.ndimage
 from scipy.stats import norm
 from keras.models import Model, Sequential
 from keras.layers import Input, Dense, LSTM, RepeatVector, Lambda, Layer
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, roc_curve, auc
 from keras import backend as K
 from keras import metrics
-from keras.datasets import mnist
 
 # fix random seed for reproducibility
 numpy.random.seed(7)
@@ -46,35 +45,6 @@ def createMatrix(dataset, look_back=1):
 	return numpy.array(dataX)
 
 # based on https://blog.keras.io/building-autoencoders-in-keras.html
-# based on http://machinelearningmastery.com/time-series-prediction-with-deep-learning-in-python-with-keras/
-# create lstm-based autoencoder
-def trainVariationalAutoencoder(dataset, timesteps, input_dim, bottleneckDim, lossEvaluation, optimizer, epochs, batchSize, verbose=False):
-	# split into train and test sets
-	train_size = int(len(dataset) * 0.67)
-	test_size = len(dataset) - train_size
-	train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
-
-	# encoder
-	inputs = Input(shape=(timesteps, input_dim))
-	encoded = LSTM(bottleneckDim)(inputs)
-
-	# decoder
-	decoded = RepeatVector(timesteps)(encoded)
-	decoded = LSTM(input_dim, return_sequences=True)(decoded)
-
-	# autoencoder
-	model = Model(inputs, decoded)
-	model.compile(loss=lossEvaluation, optimizer=optimizer)
-	model.fit(train, train, epochs=epochs, batch_size=batchSize, verbose=verbose)
-
-	# Estimate model performance
-	trainScore = model.evaluate(train, train, verbose=0)
-	print('Train Score: %.6f MSE (%.6f RMSE)' % (trainScore, math.sqrt(trainScore)))
-	testScore = model.evaluate(test, test, verbose=0)
-	print('Test Score: %.6f MSE (%.6f RMSE)' % (testScore, math.sqrt(testScore)))
-
-	return model
-
 def sampling(args):
     z_mean, z_log_var = args
     x_train_latent_shape = (original_dim[0], latent_dim)
@@ -101,18 +71,30 @@ class CustomVariationalLayer(Layer):
         # We won't actually use the output.
         return x
 
+# based on https://edouardfouche.com/Neural-based-Outlier-Discovery/
+def calculateFprTpr (predicted, labels):
+	dist = numpy.zeros(len(predicted))
+	for i in range(len(predicted)):
+	    dist[i] = numpy.linalg.norm(predicted[i])
+
+	fpr, tpr, thresholds = roc_curve(labels, dist)
+
+	return fpr, tpr
+
+
 #************* MAIN *****************#
 # variables
 look_back = 3
 bottleneckDim = 10
 lossEvaluation = 'mean_squared_error'
 optimizer = 'adam'
-fault = False
-batchSizeData = 5
 epsilon_std = 1.0
 batchSizeModel = 3
 latent_dim = 2
 epochs = 15
+roc_auc = []
+FPRs = []
+TPRs = []
 
 # load dataset with all fault simulation
 originalDataset = loadData('DadosTodasFalhas.mat', 'Xsep')
@@ -145,76 +127,15 @@ decoder_h = Dense(bottleneckDim, activation='relu')
 decoder_mean = Dense(original_dim[1], activation='sigmoid') 
 h_decoded = decoder_h(z) #batchSizeModel,bottleneckDim
 x_decoded_mean = decoder_mean(h_decoded) #batchSizeModel,original_dim
-print(x_decoded_mean.shape)
 
-
+# autoencodoer
 y = CustomVariationalLayer()([x, x_decoded_mean]) #batchSizeModel,original_dim 
 Model = Model(x, y)
 Model.compile(optimizer='rmsprop', loss=None)
 
-Model.fit(x_train, shuffle=True, epochs=epochs, batch_size=batchSizeModel, validation_data=(x_test, x_test))
+# Train model with normal data
+Model.fit(x_train, shuffle=True, epochs=epochs, batch_size=batchSizeModel, validation_data=(x_test, x_test), verbose=2)
 
-'''
-# using the model
-# build a model to project inputs on the latent space
-encoder = Model(x, z_mean)
-
-# display a 2D plot of the digit classes in the latent space
-x_test_encoded = encoder.predict(x_test, batch_size=batchSizeModel)
-plt.figure(figsize=(6, 6))
-plt.scatter(x_test_encoded[:, 0], x_test_encoded[:, 1], c=y_test)
-plt.colorbar()
-plt.show()
-
-# build a digit generator that can sample from the learned distribution
-decoder_input = Input(shape=(latent_dim,))
-_h_decoded = decoder_h(decoder_input)
-_x_decoded_mean = decoder_mean(_h_decoded)
-generator = Model(decoder_input, _x_decoded_mean)
-
-# display a 2D manifold of the digits
-n = 15  # figure with 15x15 digits
-digit_size = 28
-figure = numpy.zeros((digit_size * n, digit_size * n))
-# linearly spaced coordinates on the unit square were transformed through the inverse CDF (ppf) of the Gaussian
-# to produce values of the latent variables z, since the prior of the latent space is Gaussian
-grid_x = norm.ppf(numpy.linspace(0.05, 0.95, n))
-grid_y = norm.ppf(numpy.linspace(0.05, 0.95, n))
-
-for i, yi in enumerate(grid_x):
-    for j, xi in enumerate(grid_y):
-        z_sample = numpy.array([[xi, yi]])
-        x_decoded = generator.predict(z_sample)
-        digit = x_decoded[0].reshape(digit_size, digit_size)
-        figure[i * digit_size: (i + 1) * digit_size,
-               j * digit_size: (j + 1) * digit_size] = digit
-
-plt.figure(figsize=(10, 10))
-plt.imshow(figure, cmap='Greys_r')
-plt.show()
-'''
-'''
-# load dataset with all fault simulation
-originalDataset = loadData('DadosTodasFalhas.mat', 'Xsep')
-
-# prepare dataset to input model training
-filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[0][:,:], 4.0)
-#filteredDataset = originalDataset[0][:,:]
-normalizedDataset = normalizeData(filteredDataset)
-dataset = createMatrix(normalizedDataset, look_back)
-#dataset = numpy.reshape(dataset, (dataset.shape[0], dataset.shape[1], 22)) # reshape input to be [samples, time steps, features]
-
-#***** Train model with normal data *****#
-# Variables
-timesteps = dataset.shape[1]
-input_dim = dataset.shape[2]
-normalPredict = []
-normalError = []
-j = 0
-
-# train model
-Model = trainVariationalAutoencoder(dataset, timesteps, input_dim, bottleneckDim, lossEvaluation, optimizer, epochs, batchSizeModel, verbose=2)
-'''
 
 # get error for each batch of normal data
 normalPredict = []
@@ -240,8 +161,7 @@ for i in range(1,len(originalDataset)):
 	#filteredDataset = originalDataset[i][:,0]
 	normalizedDataset = normalizeData(filteredDataset)
 	dataset = createMatrix(normalizedDataset, look_back)
-	#dataset = numpy.reshape(dataset, (dataset.shape[0], dataset.shape[1], 22)) # reshape input to be [samples, time steps, features]
-	
+
 	# get error for each batch of data
 	for k in range(0,len(dataset),batchSizeModel):
 		dataBatch = dataset[k:k+batchSizeModel]	
@@ -252,16 +172,45 @@ for i in range(1,len(originalDataset)):
 		faultError.append(mean_squared_error(dataBatch[:,0,:], predicted[j]))
 
 		# check if it is a fault or not
-		if (faultError[j] > normalError[j]*10):
+		if (faultError[j] > normalError[j]*1.3):
 			faults.append(1)
 		else:
 			faults.append(0)
 
 		j = j + 1
 
-	print("Dataset", i, ". IsFaultVector: ", faults)
+	#print("Dataset", i, ". IsFaultVector: ", faults)
 	
+
+	# define labels to ROC curve
+	labels = []
+	for k in range(0,len(dataset),batchSizeModel):
+		if (k >= 100):
+			labels.append(1)
+		if (k < 100):
+			labels.append(0)
+
+	# calculate AUC, fpr and tpr
+	fpr, tpr = calculateFprTpr(faults, labels)
+	FPRs.append(fpr)
+	TPRs.append(tpr)
+	roc_auc.append(auc(fpr, tpr))
+
+for i in range(len(FPRs)):
+	plt.plot(FPRs[i], TPRs[i], label="AUC{0}= {1:0.2f}".format(i+1, roc_auc[i]))
+plt.xlim((0,1))
+plt.ylim((0,1))
+plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
+plt.xlabel('False Positive rate')
+plt.ylabel('True Positive rate')
+plt.title('ROC curve')
+plt.legend(loc="lower right")
+plt.show()
+
 	#plot baseline and predictions
 	#plt.plot(normalizedDataset)
 	#plt.plot(numpy.concatenate( predicted, axis=0 ))
 	#plt.show()
+
+#plt.plot(roc_auc)
+#plt.show()
