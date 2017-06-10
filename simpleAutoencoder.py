@@ -51,13 +51,17 @@ class autoencoder():
 		train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
 
 		# encoder
+		print(timesteps, input_dim)
 		inputs = Input(shape=(timesteps, input_dim))
+		print(inputs.shape)
 		encoded = LSTM(int(bottleneckDim))(inputs)
 
 		# decoder
+		print(encoded.shape)
 		decoded = RepeatVector(timesteps)(encoded)
+		print(decoded.shape)
 		decoded = LSTM(input_dim, return_sequences=True)(decoded)
-
+		print(decoded.shape)
 		# autoencoder
 		from keras.models import Model
 		model = Model(inputs, decoded)

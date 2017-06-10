@@ -10,8 +10,7 @@ import math
 import scipy.io as spio
 import scipy.ndimage
 from scipy.stats import norm
-from keras.models import Model, Sequential
-from keras.layers import Input, Dense, LSTM, RepeatVector, Lambda, Layer
+from keras.layers import Layer
 from sklearn.metrics import mean_squared_error, roc_curve, auc
 from keras import backend as K
 from keras import metrics
@@ -53,6 +52,16 @@ def sampling(args):
     return z_mean + K.exp(z_log_var / 2) * epsilon
 
 
+# based on https://edouardfouche.com/Neural-based-Outlier-Discovery/
+def calculateFprTpr (predicted, labels):
+	dist = numpy.zeros(len(predicted))
+	for i in range(len(predicted)):
+	    dist[i] = numpy.linalg.norm(predicted[i])
+
+	fpr, tpr, thresholds = roc_curve(labels, dist)
+
+	return fpr, tpr
+
 class CustomVariationalLayer(Layer):
     def __init__(self, **kwargs):
         self.is_placeholder = True
@@ -71,146 +80,183 @@ class CustomVariationalLayer(Layer):
         # We won't actually use the output.
         return x
 
-# based on https://edouardfouche.com/Neural-based-Outlier-Discovery/
-def calculateFprTpr (predicted, labels):
-	dist = numpy.zeros(len(predicted))
-	for i in range(len(predicted)):
-	    dist[i] = numpy.linalg.norm(predicted[i])
-
-	fpr, tpr, thresholds = roc_curve(labels, dist)
-
-	return fpr, tpr
-
+def vae_loss1(x, x_decoded_mean):
+        xent_loss = original_dim[1] * metrics.binary_crossentropy(x, x_decoded_mean)
+        kl_loss = - 0.5 * K.sum(1 + z_log_var - K.square(z_mean) - K.exp(z_log_var), axis=-1)
+        return K.mean(xent_loss + kl_loss)
 
 #************* MAIN *****************#
 # variables
-look_back = 3
-bottleneckDim = 10
-lossEvaluation = 'mean_squared_error'
-optimizer = 'adam'
-epsilon_std = 1.0
-batchSizeModel = 3
-latent_dim = 2
-epochs = 15
-roc_auc = []
-FPRs = []
-TPRs = []
+best_roc_auc = 0
+best_epochs = 0
+best_limit = 0
+best_bottleneckDim = 0
+best_look_back = 0
+best_epsilon_std = 0
+best_latent_dim = 0
 
-# load dataset with all fault simulation
-originalDataset = loadData('DadosTodasFalhas.mat', 'Xsep')
+for epochs in range(7,8): #16
+	print("epochs", epochs)
+	for limitAux in range(18,19): #12
+		limit = limitAux/10
+		print("limit", limit)
+		for bottleneckDim in range (4,5): #4
+			print("bottleneckDim", bottleneckDim)
+			for look_back in range(3,4): #2
+				print("look_back", look_back)
+				for epsilon_stdAux in range(3,4):
+					epsilon_std = epsilon_stdAux/10
+					print("epsilon_std", epsilon_std)
+					for latent_dim in range(1,2):
+						print("latent_dim", latent_dim)
 
-# prepare dataset
-filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[0][:,:], 4.0)
-#filteredDataset = originalDataset[i][:,0]
-normalizedDataset = normalizeData(filteredDataset)
-dataset = createMatrix(normalizedDataset, look_back)
+						# libraries
+						from keras.models import Model, Sequential
+						from keras.layers import Input, Dense, LSTM, RepeatVector, Lambda, Layer
 
-# split into train and test sets
-train_size = int(len(dataset) * 0.67)
-test_size = len(dataset) - train_size
-x_train, x_test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
+						batchSizeData = 1
+						lossEvaluation = 'mean_squared_error'
+						optimizer = 'adam'
+						batchSizeModel = look_back
+						roc_auc = []
+						FPRs = []
+						TPRs = []
 
-# get sample size
-original_dim = (x_train.shape[1], x_train.shape[2])
+						# load dataset with all fault simulation
+						originalDataset = loadData('DadosTodasFalhas.mat', 'Xsep')
 
-# encoder
-x = Input(batch_shape=(batchSizeModel,) + original_dim) #batchSizeModel, original_dim (22)
-h = Dense(bottleneckDim, activation='relu')(x) #batchSizeModel,bottleneckDim
-z_mean = Dense(latent_dim)(h) #batchSizeModel,latent_dim
-z_log_var = Dense(latent_dim)(h) #batchSizeModel,latent_dim
+						# prepare dataset
+						filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[0][:,:], 4.0)
+						#filteredDataset = originalDataset[0][:,:]
+						normalizedDataset = normalizeData(filteredDataset)
+						dataset = createMatrix(normalizedDataset, look_back)
 
-z = Lambda(sampling)([z_mean, z_log_var])
+						# split into train and test sets
+						train_size = int(len(dataset) * 0.67)
+						test_size = len(dataset) - train_size
+						x_train, x_test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
 
-# decoder
-# we instantiate these layers separately so as to reuse them later
-decoder_h = Dense(bottleneckDim, activation='relu') 
-decoder_mean = Dense(original_dim[1], activation='sigmoid') 
-h_decoded = decoder_h(z) #batchSizeModel,bottleneckDim
-x_decoded_mean = decoder_mean(h_decoded) #batchSizeModel,original_dim
+						# get sample size
+						original_dim = (x_train.shape[1], x_train.shape[2])
 
-# autoencodoer
-y = CustomVariationalLayer()([x, x_decoded_mean]) #batchSizeModel,original_dim 
-Model = Model(x, y)
-Model.compile(optimizer='rmsprop', loss=None)
+						# encoder
+						x = Input(shape=(original_dim)) #batchSizeModel, original_dim (22)
+						h = LSTM(int(bottleneckDim), activation='relu')(x)
+						z_mean = Dense(latent_dim)(h) #batchSizeModel,latent_dim
+						z_log_var = Dense(latent_dim)(h) #batchSizeModel,latent_dim
+						
+						z = Lambda(sampling)([z_mean, z_log_var])
+						
+						# decoder
+						decoded = RepeatVector(original_dim[0])(z_log_var)
+						h_decoded = LSTM(original_dim[1], return_sequences=True, activation='relu')(decoded)
+						x_decoded_mean = Dense(original_dim[1], activation='sigmoid')(h_decoded) #batchSizeModel,original_dim
+						
+						# autoencodoer
+						Model = Model(x, x_decoded_mean)
+						Model.compile(optimizer='rmsprop', loss=vae_loss1)
 
-# Train model with normal data
-Model.fit(x_train, shuffle=True, epochs=epochs, batch_size=batchSizeModel, validation_data=(x_test, x_test), verbose=2)
+						# Train model with normal data
+						Model.fit(x_train, x_train, shuffle=True, epochs=epochs, batch_size=batchSizeModel, validation_data=(x_test, x_test), verbose=False)
 
 
-# get error for each batch of normal data
-normalPredict = []
-normalError = []
-j = 0
-for k in range(0,len(dataset),batchSizeModel):
-	dataBatch = dataset[k:k+batchSizeModel]	
-	normalPredict.append(Model.predict(dataBatch))
-	normalError.append(mean_squared_error(dataBatch[:,0,:], normalPredict[j][:,0,:]))
-	j += 1
+						# get error for each batch of normal data
+						normalPredict = []
+						normalError = []
+						j = 0
+						for k in range(0,len(dataset),batchSizeModel):
+							dataBatch = dataset[k:k+batchSizeModel]	
+							normalPredict.append(Model.predict(dataBatch))
+							normalError.append(mean_squared_error(dataBatch[:,0,:], normalPredict[j][:,0,:]))
+							j += 1
 
-#***** Testing if it is a fault or not *****#
-for i in range(1,len(originalDataset)):
-	#local variables
-	j = 0
-	faults = []
-	trainPredict = []
-	faultError = []
-	predicted = []
+						#***** Testing if it is a fault or not *****#
+						for i in range(1,len(originalDataset)):
+							#local variables
+							j = 0
+							faults = []
+							trainPredict = []
+							faultError = []
+							predicted = []
 
-	# prepare dataset
-	filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[i][:,:], 4.0)
-	#filteredDataset = originalDataset[i][:,0]
-	normalizedDataset = normalizeData(filteredDataset)
-	dataset = createMatrix(normalizedDataset, look_back)
+							# prepare dataset
+							filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[i][:,:], 4.0)
+							#filteredDataset = originalDataset[i][:,:]
+							normalizedDataset = normalizeData(filteredDataset)
+							dataset = createMatrix(normalizedDataset, look_back)
 
-	# get error for each batch of data
-	for k in range(0,len(dataset),batchSizeModel):
-		dataBatch = dataset[k:k+batchSizeModel]	
+							# get error for each batch of data
+							for k in range(0,len(dataset),batchSizeModel):
+								dataBatch = dataset[k:k+batchSizeModel]	
 
-		# generate predictions using model
-		trainPredict.append(Model.predict(dataBatch))
-		predicted.append(trainPredict[j][:,0,:])
-		faultError.append(mean_squared_error(dataBatch[:,0,:], predicted[j]))
+								# generate predictions using model
+								trainPredict.append(Model.predict(dataBatch))
+								predicted.append(trainPredict[j][:,0,:])
+								faultError.append(mean_squared_error(dataBatch[:,0,:], predicted[j]))
 
-		# check if it is a fault or not
-		if (faultError[j] > normalError[j]*1.3):
-			faults.append(1)
-		else:
-			faults.append(0)
+								# check if it is a fault or not
+								if (faultError[j] > normalError[j]*limit):
+									faults.append(1)
+								else:
+									faults.append(0)
 
-		j = j + 1
+								j = j + 1
 
-	#print("Dataset", i, ". IsFaultVector: ", faults)
-	
+							#print("Dataset", i, ". IsFaultVector: ", faults)
+							
 
-	# define labels to ROC curve
-	labels = []
-	for k in range(0,len(dataset),batchSizeModel):
-		if (k >= 100):
-			labels.append(1)
-		if (k < 100):
-			labels.append(0)
+							# define labels to ROC curve
+							labels = []
+							for k in range(0,len(dataset),batchSizeModel):
+								if (k >= 100):
+									labels.append(1)
+								if (k < 100):
+									labels.append(0)
 
-	# calculate AUC, fpr and tpr
-	fpr, tpr = calculateFprTpr(faults, labels)
-	FPRs.append(fpr)
-	TPRs.append(tpr)
-	roc_auc.append(auc(fpr, tpr))
+							# calculate AUC, fpr and tpr
+							fpr, tpr = calculateFprTpr(faults, labels)
+							FPRs.append(fpr)
+							TPRs.append(tpr)
+							roc_auc.append(auc(fpr, tpr))
 
-for i in range(len(FPRs)):
-	plt.plot(FPRs[i], TPRs[i], label="AUC{0}= {1:0.2f}".format(i+1, roc_auc[i]))
-plt.xlim((0,1))
-plt.ylim((0,1))
-plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
-plt.xlabel('False Positive rate')
-plt.ylabel('True Positive rate')
-plt.title('ROC curve')
-plt.legend(loc="lower right")
-plt.show()
+							sum_roc_auc = 0
+							for i in range(len(roc_auc)):
+								sum_roc_auc += roc_auc[i]
 
-	#plot baseline and predictions
-	#plt.plot(normalizedDataset)
-	#plt.plot(numpy.concatenate( predicted, axis=0 ))
-	#plt.show()
+							if (sum_roc_auc > best_roc_auc):
+								best_roc_auc = sum_roc_auc
+								best_epochs = epochs
+								best_limit = limit
+								best_bottleneckDim = bottleneckDim 
+								best_look_back = look_back
+								best_epsilon_std = epsilon_std
+								best_latent_dim = latent_dim
 
-#plt.plot(roc_auc)
-#plt.show()
+						#for i in range(len(FPRs)):
+						#	plt.plot(FPRs[i], TPRs[i], label="AUC{0}= {1:0.2f}".format(i+1, roc_auc[i]))
+						#plt.xlim((0,1))
+						#plt.ylim((0,1))
+						#plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
+						#plt.xlabel('False Positive rate')
+						#plt.ylabel('True Positive rate')
+						#plt.title('ROC curve')
+						#plt.legend(loc="lower right")
+						#plt.show()
+
+							#plot baseline and predictions
+							#plt.plot(normalizedDataset)
+							#plt.plot(numpy.concatenate( predicted, axis=0 ))
+							#plt.show()
+
+						#plt.plot(roc_auc)
+						#plt.show()
+
+
+print("bests parameters")
+print("best_limit", best_limit) #1
+print("best_epochs", best_epochs) #10
+print("best_roc_auc", best_roc_auc) #11.27
+print("best_look_back", best_look_back) #1
+print("best_bottleneckDim", best_bottleneckDim) #2
+print("best_epsilon_std", best_epsilon_std)
+print("best_latent_dim", best_latent_dim)
