@@ -12,6 +12,9 @@ import scipy.ndimage
 from keras.layers import Input, Dense, LSTM, RepeatVector
 from sklearn.metrics import mean_squared_error, roc_curve, auc
 
+# fix random seed for reproducibility
+numpy.random.seed(7)
+
 # load the dataset
 def loadData(file, dictName):
 	matfile = file
@@ -87,7 +90,7 @@ def calculateFprTpr (predicted, labels):
 best_roc_auc = 0
 best_epochs = 0
 best_limit = 0
-best_batchSizeData = 0
+best_bottleneckDim = 0
 best_look_back = 0
 best_noise_factor = 0
 
@@ -96,8 +99,8 @@ for epochs in range(25,26):
 	for limitAux in range(10,11):
 		limit = limitAux/10
 		print("limit", limit)
-		for batchSizeData in range (10,15,2):
-			print("batchSizeData", batchSizeData)
+		for bottleneckDim in range (6,7):
+			print("bottleneckDim", bottleneckDim)
 			for look_back in range(3,4): #3
 				print("look_back", look_back)
 				for noise_factorAux in range (5,6): #5
@@ -110,9 +113,9 @@ for epochs in range(25,26):
 					#print(look_back)
 
 					#look_back = 1
-					#batchSizeData = 5
+					batchSizeData = 1
 					#epochs = 10
-					bottleneckDim = batchSizeData/2
+					#bottleneckDim = batchSizeData/2
 					batchSizeModel = 5
 					lossEvaluation = 'mean_squared_error'
 					optimizer = 'adam'
@@ -204,7 +207,7 @@ for epochs in range(25,26):
 							best_roc_auc = sum_roc_auc
 							best_epochs = epochs
 							best_limit = limit
-							best_batchSizeData = batchSizeData 
+							best_bottleneckDim = bottleneckDim 
 							best_look_back = look_back
 							best_noise_factor = noise_factor
 		#plot baseline and predictions
@@ -231,5 +234,5 @@ print("best_limit", best_limit) #1
 print("best_epochs", best_epochs) #10
 print("best_roc_auc", best_roc_auc) #11.27
 print("best_look_back", best_look_back) #1
-print("best_batchSizeData", best_batchSizeData) #2
+print("best_bottleneckDim", best_bottleneckDim) #2
 print("best_noise_factor", best_noise_factor)

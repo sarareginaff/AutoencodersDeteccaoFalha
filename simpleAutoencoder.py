@@ -91,7 +91,7 @@ def calculateFprTpr (predicted, labels):
 best_roc_auc = 0
 best_epochs = 0
 best_limit = 0
-best_batchSizeData = 0
+best_bottleneckDim = 0
 best_look_back = 0
 
 for epochs in range(16,17): #16
@@ -99,8 +99,8 @@ for epochs in range(16,17): #16
 	for limitAux in range(12,13): #12
 		limit = limitAux/10
 		print("limit", limit)
-		for batchSizeData in range (4,5): #4
-			print("batchSizeData", batchSizeData)
+		for bottleneckDim in range (2,3): #4
+			print("bottleneckDim", bottleneckDim)
 			for look_back in range(2,3): #2
 				print("look_back", look_back)
 
@@ -110,9 +110,9 @@ for epochs in range(16,17): #16
 				#print(look_back)
 
 				#look_back = 1
-				#batchSizeData = 5
+				batchSizeData = 1
 				#epochs = 10
-				bottleneckDim = batchSizeData/2
+				#bottleneckDim = batchSizeData/2
 				batchSizeModel = 5
 				lossEvaluation = 'mean_squared_error'
 				optimizer = 'adam'
@@ -204,7 +204,7 @@ for epochs in range(16,17): #16
 						best_roc_auc = sum_roc_auc
 						best_epochs = epochs
 						best_limit = limit
-						best_batchSizeData = batchSizeData 
+						best_bottleneckDim = bottleneckDim 
 						best_look_back = look_back
 	#plot baseline and predictions
 	#plt.plot(normalizedDataset)
@@ -230,4 +230,4 @@ print("best_limit", best_limit) #1
 print("best_epochs", best_epochs) #10
 print("best_roc_auc", best_roc_auc) #11.27
 print("best_look_back", best_look_back) #1
-print("best_batchSizeData", best_batchSizeData) #2
+print("best_bottleneckDim", best_bottleneckDim) #2

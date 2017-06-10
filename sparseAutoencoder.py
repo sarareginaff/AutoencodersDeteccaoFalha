@@ -89,7 +89,7 @@ def calculateFprTpr (predicted, labels):
 best_roc_auc = 0
 best_epochs = 0
 best_limit = 0
-best_batchSizeData = 0
+best_bottleneckDim = 0
 best_look_back = 0
 best_regularizerIndex = 0
 
@@ -98,15 +98,16 @@ for epochs in range(16,17):
 	for limitAux in range(11,12):
 		limit = limitAux/10
 		print("limit", limit)
-		for batchSizeData in range (10,11,2):
-			print("batchSizeData", batchSizeData)
+		for bottleneckDim in range (9,10):
+			print("bottleneckDim", bottleneckDim)
 			for look_back in range(6,7):
 				print("look_back", look_back)
 				for regularizerIndex in range (5,6):
 					regularizer=regularizers.l1(pow(10,-regularizerIndex))
 					print("regularizer", regularizerIndex)
 				
-					bottleneckDim = batchSizeData/2
+					batchSizeData = 1
+					#bottleneckDim = batchSizeData/2
 					batchSizeModel = 5
 					lossEvaluation = 'mean_squared_error'
 					optimizer = 'adam'
@@ -197,7 +198,7 @@ for epochs in range(16,17):
 							best_roc_auc = sum_roc_auc
 							best_epochs = epochs
 							best_limit = limit
-							best_batchSizeData = batchSizeData 
+							best_bottleneckDim = bottleneckDim
 							best_look_back = look_back
 							best_regularizerIndex = regularizerIndex
 		#plot baseline and predictions
@@ -224,5 +225,5 @@ print("best_limit", best_limit)
 print("best_epochs", best_epochs)
 print("best_roc_auc", best_roc_auc)
 print("best_look_back", best_look_back)
-print("best_batchSizeData", best_batchSizeData)
+print("best_bottleneckDim", best_bottleneckDim)
 print("best_regularizerIndex", best_regularizerIndex)
