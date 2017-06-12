@@ -51,17 +51,12 @@ class autoencoder():
 		train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
 
 		# encoder
-		print(timesteps, input_dim)
 		inputs = Input(shape=(timesteps, input_dim))
-		print(inputs.shape)
 		encoded = LSTM(int(bottleneckDim))(inputs)
 
 		# decoder
-		print(encoded.shape)
 		decoded = RepeatVector(timesteps)(encoded)
-		print(decoded.shape)
 		decoded = LSTM(input_dim, return_sequences=True)(decoded)
-		print(decoded.shape)
 		# autoencoder
 		from keras.models import Model
 		model = Model(inputs, decoded)
@@ -211,19 +206,21 @@ for epochs in range(16,17): #16
 	#plt.plot(numpy.concatenate( predicted, axis=0 ))
 	#plt.show()
 
-					#for i in range(len(FPRs)):
-					#	plt.plot(FPRs[i], TPRs[i], label="AUC{0}= {1:0.2f}".format(i+1, roc_auc[i]))
-					#plt.xlim((0,1))
-					#plt.ylim((0,1))
-					#plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
-					#lt.xlabel('False Positive rate')
-					#lt.ylabel('True Positive rate')
-					#plt.title('ROC curve')
-					#plt.legend(loc="lower right")
-					#plt.show()
+sum_selected_roc_auc = 0
+for j in range(len(FPRs)):
+	i = j+1
+	if(i == 1 or i == 2 or i == 5 or i == 7 or i == 8 or i == 9 or i == 10 or i == 11 or i == 12 or i == 14 or i == 15 or i == 19):
+		plt.plot(FPRs[j], TPRs[j], label="AUC{0}= {1:0.2f}".format(i+1, roc_auc[j]))
+		sum_selected_roc_auc += roc_auc[j]
 
-					#plt.plot(roc_auc)
-					#plt.show()
+plt.xlim((0,1))
+plt.ylim((0,1))
+plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
+plt.xlabel('False Positive rate')
+plt.ylabel('True Positive rate')
+plt.title('ROC curve - Simple Autoencoder')
+plt.legend(loc="lower right")
+plt.show()
 
 print("bests parameters")
 print("best_limit", best_limit) #1
@@ -231,3 +228,4 @@ print("best_epochs", best_epochs) #10
 print("best_roc_auc", best_roc_auc) #11.27
 print("best_look_back", best_look_back) #1
 print("best_bottleneckDim", best_bottleneckDim) #2
+print("sum_selected_roc_auc", sum_selected_roc_auc)

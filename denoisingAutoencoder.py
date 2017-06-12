@@ -127,8 +127,8 @@ for epochs in range(25,26):
 					originalDataset = loadData('DadosTodasFalhas.mat', 'Xsep')
 
 					# prepare dataset to input model training
-					filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[0][:,:], 4.0)
-					#filteredDataset = originalDataset[0][:,:]
+					#filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[0][:,:], 4.0)
+					filteredDataset = originalDataset[0][:,:]
 					normalizedDataset = normalizeData(filteredDataset)
 					dataset = createMatrix(normalizedDataset, look_back)
 					#dataset = numpy.reshape(dataset, (dataset.shape[0], dataset.shape[1], 22)) # reshape input to be [samples, time steps, features]
@@ -143,7 +143,7 @@ for epochs in range(25,26):
 
 					# train model
 					Model = trainDenoisingAutoencoder(dataset, noise_factor, timesteps, input_dim, bottleneckDim, lossEvaluation, optimizer, epochs, batchSizeModel, verbose=False)
-					
+					'''
 					# get error for each batch of normal data
 					for k in range(0,len(dataset),batchSizeData):
 						dataBatch = dataset[k:k+batchSizeData]	
@@ -161,8 +161,8 @@ for epochs in range(25,26):
 						predicted = []
 
 						# prepare dataset
-						filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[i][:,:], 4.0)
-						#filteredDataset = originalDataset[i][:,0]
+						#filteredDataset = scipy.ndimage.filters.gaussian_filter(originalDataset[i][:,:], 4.0)
+						filteredDataset = originalDataset[i][:,:]
 						normalizedDataset = normalizeData(filteredDataset)
 						dataset = createMatrix(normalizedDataset, look_back)
 						#dataset = numpy.reshape(dataset, (dataset.shape[0], dataset.shape[1], 22)) # reshape input to be [samples, time steps, features]
@@ -215,19 +215,22 @@ for epochs in range(25,26):
 		#plt.plot(numpy.concatenate( predicted, axis=0 ))
 		#plt.show()
 
-						#for i in range(len(FPRs)):
-						#	plt.plot(FPRs[i], TPRs[i], label="AUC{0}= {1:0.2f}".format(i+1, roc_auc[i]))
-						#plt.xlim((0,1))
-						#plt.ylim((0,1))
-						#plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
-						#plt.xlabel('False Positive rate')
-						#plt.ylabel('True Positive rate')
-						#plt.title('ROC curve')
-						#plt.legend(loc="lower right")
-						#plt.show()
+sum_selected_roc_auc = 0
+for j in range(len(FPRs)):
+	i = j+1
+	if(i == 1 or i == 2 or i == 5 or i == 7 or i == 8 or i == 9 or i == 10 or i == 11 or i == 12 or i == 14 or i == 15 or i == 19):
+		plt.plot(FPRs[j], TPRs[j], label="AUC{0}= {1:0.2f}".format(i+1, roc_auc[j]))
+		sum_selected_roc_auc += roc_auc[j]
 
-						#plt.plot(roc_auc)
-						#plt.show()
+
+plt.xlim((0,1))
+plt.ylim((0,1))
+plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
+plt.xlabel('False Positive rate')
+plt.ylabel('True Positive rate')
+plt.title('ROC curve - Denoising Autoencoder')
+plt.legend(loc="lower right")
+plt.show()
 
 print("bests parameters")
 print("best_limit", best_limit) #1
@@ -236,3 +239,5 @@ print("best_roc_auc", best_roc_auc) #11.27
 print("best_look_back", best_look_back) #1
 print("best_bottleneckDim", best_bottleneckDim) #2
 print("best_noise_factor", best_noise_factor)
+print("sum_selected_roc_auc", sum_selected_roc_auc)
+'''
